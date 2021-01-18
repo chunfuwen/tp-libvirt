@@ -4,6 +4,7 @@ import logging
 import aexpect
 import platform
 import time
+import threading
 
 from avocado.utils import process
 
@@ -201,6 +202,7 @@ def run(test, params, env):
     pvt = None
     duplicated_encryption = "yes" == params.get("duplicated_encryption", "no")
     slice_support_enable = "yes" == params.get("slice_support_enable", "no")
+    block_copy_test = "yes" == params.get("block_copy_test", "no")
 
     if ((encryption_in_source or auth_in_source) and
             not libvirt_version.version_compare(3, 9, 0)):
@@ -477,10 +479,44 @@ def run(test, params, env):
             check_dev_format(device_source, fmt="qcow2")
         else:
             check_dev_format(device_source)
+        if block_copy_test:
+            # Create a transient VM
+            virsh.undefine(vm_name, debug=True, ignore_status=False)
+            transient_vmxml = vm_xml.VMXML.new_from_inactive_dumpxml(vm_name)
+            virsh.create(transient_vmxml.xml)
+            options = params.get("blockcopy_options")
+            tmp_dir = data_dir.get_tmp_dir()
+            tmp_file = time.strftime("%Y-%m-%d-%H.%M.%S.img")
+            dest_path = os.path.join(tmp_dir, tmp_file)
+
+            def _trigger_block_copy(vm_name, target, dest_path, blockcopy_options, **virsh_dargs):
+                """
+                Trigger blockcopy
+
+                :param vm_name: string, VM name
+                :param target: string, target disk
+                :param dest_path: string, the path of copied disk
+                :param blockcopy_options: string, some options applied
+                :param virsh_dargs: additional options
+                """
+                virsh.blockcopy(vm_name, target, dest_path, blockcopy_options, **virsh_dargs)
+            # Need cover two scenarios:single blockcopy, blockcopy and abort combined
+            if encryption_in_source:
+                _trigger_block_copy(vm_name, device_target, dest_path,
+                                    options, ignore_status=False, debug=True)
+            else:
+                ignite_blockcopy_thread = threading.Thread(target=_trigger_block_copy,
+                                                           args=(vm_name, device_target, dest_path, options,),
+                                                           kwargs={'ignore_status': True, 'debug': True})
+                ignite_blockcopy_thread.start()
+                ignite_blockcopy_thread.join(2)
+                virsh.blockjob(vm_name, device_target, " --abort", ignore_status=False)
     finally:
         # Recover VM.
         if vm.is_alive():
             vm.destroy(gracefully=False)
+        if block_copy_test:
+            virsh.define(vmxml_backup.xml, debug=True)
         vmxml_backup.sync("--snapshots-metadata")
 
         # Clean up backend storage
