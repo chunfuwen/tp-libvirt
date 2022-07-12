@@ -122,7 +122,7 @@ Coding
 
 - complexity handling
 
-  - contributors are encouraged to solve the problem they know needs to be solved now, not the problem that the contributor speculates might need to be solved in the future. the future problem should be solved once it arrives and you can see its actual shape and requirements in the physical universe.
+  - focus on the problem to be solved now, not one that might need to be solved in the future; the future problem should be solved once it arrives and you can see its actual shape and requirements
 
 ======================================================================
 Enhancement (best practice):
